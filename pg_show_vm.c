@@ -41,10 +41,10 @@ PG_FUNCTION_INFO_V1(pg_show_vm);
 static void get_values(const Oid relid, const LOCKMODE mode,
 					   BlockNumber *relpages, BlockNumber *all_visible,
 					   BlockNumber *all_frozen, List **indexoidlist);
-static void set_values(Tuplestorestate *tupstore, TupleDesc tupdesc,
-					   const Oid relid, const BlockNumber relpages,
-					   const BlockNumber all_visible, const BlockNumber all_frozen,
-					   const int type);
+static void set_rel_values(Tuplestorestate *tupstore, TupleDesc tupdesc,
+						   const Oid relid, const BlockNumber relpages,
+						   const BlockNumber all_visible, const BlockNumber all_frozen,
+						   const int type);
 static void set_index_values(Tuplestorestate *tupstore, TupleDesc tupdesc, List *indexoidlist,
 							 const int type, const LOCKMODE mode);
 static void set_data(Tuplestorestate *tupstore, TupleDesc tupdesc,
@@ -99,10 +99,10 @@ get_values(const Oid relid, const LOCKMODE mode,
 
 
 static void
-set_values(Tuplestorestate *tupstore, TupleDesc tupdesc,
-		   const Oid relid, const BlockNumber relpages,
-		   const BlockNumber all_visible, const BlockNumber all_frozen,
-		   const int type)
+set_rel_values(Tuplestorestate *tupstore, TupleDesc tupdesc,
+			   const Oid relid, const BlockNumber relpages,
+			   const BlockNumber all_visible, const BlockNumber all_frozen,
+			   const int type)
 {
 	int			i;
 
@@ -144,7 +144,7 @@ set_index_values(Tuplestorestate *tupstore, TupleDesc tupdesc, List *indexoidlis
 		visibilitymap_count(indrel, &all_visible, &all_frozen);
 		index_close(indrel, mode);
 
-		set_values(tupstore, tupdesc, indexoid, relpages, all_visible, all_frozen, type);
+		set_rel_values(tupstore, tupdesc, indexoid, relpages, all_visible, all_frozen, type);
 	}
 }
 
@@ -161,7 +161,7 @@ set_data(Tuplestorestate *tupstore, TupleDesc tupdesc, const Oid relid,
 	get_values(relid, mode, &relpages, &all_visible, &all_frozen, &indexoidlist);
 
 	/* relation */
-	set_values(tupstore, tupdesc, relid, relpages, all_visible, all_frozen, type);
+	set_rel_values(tupstore, tupdesc, relid, relpages, all_visible, all_frozen, type);
 
 	/* indexes */
 	if (list_length(indexoidlist) > 0)
