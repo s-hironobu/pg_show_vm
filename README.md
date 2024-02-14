@@ -35,7 +35,7 @@ By issuing the following query, it shows the visibility map of the specified rel
 
 
 ```
-postgres=# SELECT oid, relname, relpages, relallvisible, relallfrozen FROM pg_class WHERE relname LIKE 'pgbench_accounts%';
+postgres=# SELECT oid, relname, relpages, relallvisible FROM pg_class WHERE relname LIKE 'pgbench_accounts%';
   oid  |        relname        | relpages | relallvisible
 -------+-----------------------+----------+---------------
  16391 | pgbench_accounts      |     1968 |          1968
@@ -59,7 +59,7 @@ postgres=# SELECT * FROM pg_show_vm('16391');
 postgres=# 
 postgres=# UPDATE pgbench_accounts SET abalance = abalance + 1 WHERE aid < 20000;
 UPDATE 19999
-postgres=# SELECT oid, relname, relpages, relallvisible, relallfrozen FROM pg_class WHERE relname LIKE 'pgbench_accounts%';
+postgres=# SELECT oid, relname, relpages, relallvisible FROM pg_class WHERE relname LIKE 'pgbench_accounts%';
   oid  |        relname        | relpages | relallvisible
 -------+-----------------------+----------+---------------
  16391 | pgbench_accounts      |     1968 |          1968
