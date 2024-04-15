@@ -16,6 +16,20 @@ RETURNS SETOF record
 AS 'MODULE_PATHNAME'
 LANGUAGE C IMMUTABLE STRICT;
 
+CREATE OR REPLACE FUNCTION pg_show_rel_vm(
+       IN relname text,
+       IN index bool,
+       IN partition bool,
+       OUT relid int,
+       OUT relpages int,
+       OUT all_visible int,
+       OUT all_frozen int,
+       OUT type int
+)
+RETURNS SETOF record
+AS 'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT;
+
 
 -- GRANT SELECT ON pg_show_vm TO PUBLIC;
 

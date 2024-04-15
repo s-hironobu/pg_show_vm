@@ -19,9 +19,11 @@
 #include "catalog/pg_authid_d.h"
 #include "catalog/pg_class.h"
 #include "catalog/pg_inherits.h"
+#include "catalog/namespace.h"
 #include "utils/acl.h"
 #include "utils/syscache.h"
 #include "utils/relcache.h"
+#include "utils/builtins.h"
 #include "storage/lockdefs.h"
 #include "storage/bufmgr.h"
 #include "funcapi.h"
@@ -34,8 +36,10 @@ PG_MODULE_MAGIC;
 void		_PG_init(void);
 void		_PG_fini(void);
 
+Datum		pg_show_rel_vm(PG_FUNCTION_ARGS);
 Datum		pg_show_vm(PG_FUNCTION_ARGS);
 
+PG_FUNCTION_INFO_V1(pg_show_rel_vm);
 PG_FUNCTION_INFO_V1(pg_show_vm);
 
 static void get_values(const Oid relid, const LOCKMODE mode,
@@ -48,7 +52,8 @@ static void set_rel_values(Tuplestorestate *tupstore, TupleDesc tupdesc,
 static void set_index_values(Tuplestorestate *tupstore, TupleDesc tupdesc, List *indexoidlist,
 							 const int type, const LOCKMODE mode);
 static void set_data(Tuplestorestate *tupstore, TupleDesc tupdesc,
-					 const Oid relid, const LOCKMODE mode, const int type);
+					 const Oid relid, const LOCKMODE mode, const int type, const bool index);
+static Oid	get_relation_oid(const char *relname);
 
 
 /* Module callback */
@@ -150,7 +155,7 @@ set_index_values(Tuplestorestate *tupstore, TupleDesc tupdesc, List *indexoidlis
 
 static void
 set_data(Tuplestorestate *tupstore, TupleDesc tupdesc, const Oid relid,
-		 const LOCKMODE mode, const int type)
+		 const LOCKMODE mode, const int type, const bool index)
 {
 
 	BlockNumber relpages;
@@ -164,10 +169,104 @@ set_data(Tuplestorestate *tupstore, TupleDesc tupdesc, const Oid relid,
 	set_rel_values(tupstore, tupdesc, relid, relpages, all_visible, all_frozen, type);
 
 	/* indexes */
-	if (list_length(indexoidlist) > 0)
+	if ((index == true) && (list_length(indexoidlist) > 0))
 		set_index_values(tupstore, tupdesc, indexoidlist, (type + 1), mode);
 }
 
+static Oid
+get_relation_oid(const char *relname)
+{
+	return RelnameGetRelid(relname);
+}
+
+
+Datum
+pg_show_rel_vm(PG_FUNCTION_ARGS)
+{
+	ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
+	TupleDesc	tupdesc;
+	Tuplestorestate *tupstore;
+	MemoryContext per_query_ctx;
+	MemoryContext oldcontext;
+	char	   *relname;
+	bool		index;
+	bool		partition;
+	Oid			relid;
+	LOCKMODE	mode;
+	HeapTuple	tuple;
+	Form_pg_class classForm;
+	bool		include_parts;
+
+	if (!is_member_of_role(GetUserId(), ROLE_PG_MONITOR))
+		elog(ERROR, "This function requires ROLE_PG_MONITOR privilege.");
+
+	/* check to see if caller supports us returning a tuplestore */
+	if (rsinfo == NULL || !IsA(rsinfo, ReturnSetInfo))
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("set-valued function called in context that cannot accept a set")));
+	if (!(rsinfo->allowedModes & SFRM_Materialize))
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("materialize mode required, but it is not " \
+						"allowed in this context")));
+
+	/* Switch into long-lived context to construct returned data structures */
+	per_query_ctx = rsinfo->econtext->ecxt_per_query_memory;
+	oldcontext = MemoryContextSwitchTo(per_query_ctx);
+
+	/* Build a tuple descriptor for our result type */
+	if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
+		elog(ERROR, "return type must be a row type");
+
+	tupstore = tuplestore_begin_heap(true, false, work_mem);
+	rsinfo->returnMode = SFRM_Materialize;
+	rsinfo->setResult = tupstore;
+	rsinfo->setDesc = tupdesc;
+
+	MemoryContextSwitchTo(oldcontext);
+
+
+	/* Set params */
+	relname = text_to_cstring(PG_GETARG_TEXT_PP(0));
+	relid = get_relation_oid(relname);
+	index = PG_GETARG_BOOL(1);
+	partition = PG_GETARG_BOOL(2);
+
+	mode = AccessShareLock;
+
+	/* Set relation's data */
+	set_data(tupstore, tupdesc, relid, mode, type_rel, index);
+
+	if (partition != true)
+		return (Datum) 0;
+
+	/* Set partitions' data */
+	tuple = SearchSysCache1(RELOID, ObjectIdGetDatum(relid));
+	if (!HeapTupleIsValid(tuple))
+		elog(ERROR, "cache lookup failed for relation %u", relid);
+	classForm = (Form_pg_class) GETSTRUCT(tuple);
+	include_parts = (classForm->relkind == RELKIND_PARTITIONED_TABLE);
+	ReleaseSysCache(tuple);
+
+	if (include_parts)
+	{
+		List	   *part_oids = find_all_inheritors(relid, NoLock, NULL);
+		ListCell   *part_lc;
+
+		foreach(part_lc, part_oids)
+		{
+			Oid			part_oid = lfirst_oid(part_lc);
+
+			if (part_oid == relid)
+				continue;		/* ignore original table */
+			/* Set partition's data */
+			set_data(tupstore, tupdesc, part_oid, mode, type_partition, index);
+		}
+	}
+
+	return (Datum) 0;
+}
 
 Datum
 pg_show_vm(PG_FUNCTION_ARGS)
@@ -218,7 +317,7 @@ pg_show_vm(PG_FUNCTION_ARGS)
 	mode = AccessShareLock;
 
 	/* Set relation's data */
-	set_data(tupstore, tupdesc, relid, mode, type_rel);
+	set_data(tupstore, tupdesc, relid, mode, type_rel, true);
 
 	/* Set partitions' data */
 	tuple = SearchSysCache1(RELOID, ObjectIdGetDatum(relid));
@@ -240,7 +339,7 @@ pg_show_vm(PG_FUNCTION_ARGS)
 			if (part_oid == relid)
 				continue;		/* ignore original table */
 			/* Set partition's data */
-			set_data(tupstore, tupdesc, part_oid, mode, type_partition);
+			set_data(tupstore, tupdesc, part_oid, mode, type_partition, true);
 		}
 	}
 
