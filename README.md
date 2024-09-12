@@ -5,6 +5,7 @@
 While the `pg_class` view provides information on `relpages` and `relallvisible`, these values are approximations and can often be inaccurate.
 In contrast, pg_show_vm consistently offers accurate visibility map data.
 
+This extension supports PostgreSQL versions 16 and 17.
 
 ## Installation
 
@@ -124,5 +125,6 @@ postgres=# SELECT * FROM pg_show_rel_vm('pgbench_accounts', false, true);
 Same as `pg_show_vm(oid)`.
 
 ## Change Log
+- 12 Sep, 2024: Supported PG17.
 - 15 Apr, 2024: Added pg_show_rel_vm().
 - 1 Jan, 2024: Version 1.0 Released.
